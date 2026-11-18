@@ -1,0 +1,29 @@
+/* BeUI utilities; omit Tailwind's global reset to preserve the application shell. */
+@import "tailwindcss/theme.css";
+@import "tailwindcss/utilities.css";
+
+@theme {
+  --color-background: #0d0f13;
+  --color-foreground: #e8e9ed;
+  --color-card: #171b23;
+  --color-border: #353b47;
+  --color-muted-foreground: #9ca4b3;
+  --color-ring: #ff7445;
+  --color-warning: #e8c774;
+  --color-border-strong: #626d80;
+  --color-popover: #202631;
+  --color-popover-foreground: #e8e9ed;
+}
+
+.bracket-view-controls { display: flex; gap: 6px; margin: 0 0 20px; }
+.bracket-view-controls button { padding: 9px 14px; border: 1px solid var(--border); border-radius: 8px; color: #a6adba; }
+.bracket-view-controls button[aria-pressed="true"] { background: #ff74451a; border-color: #ff744566; color: var(--orange); }
+.wheel-view h3 { margin: 0 0 8px; }
+.wheel-view > p { max-width: 640px; color: #9ca4b3; line-height: 1.6; margin: 0 0 20px; }
+
+@layer base {
+  .beui-bracket *, .beui-bracket *::before, .beui-bracket *::after {
+    border-style: solid;
+    border-width: 0;
+  }
+}

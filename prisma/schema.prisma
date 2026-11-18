@@ -1,0 +1,196 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// A tournament document is the atomic aggregate for the bracket engine.
+// JSON preserves the engine's full record schema without third-party adapters.
+model Tournament {
+  id          Int                @id
+  revision    Int                @default(0)
+  document    Json
+  updatedAt   DateTime           @default(now()) @updatedAt
+  memberships Membership[]
+  wallets     Wallet[]
+  markets     PredictionMarket[]
+  submissions MatchSubmission[]
+
+  @@map("tournaments")
+}
+
+model Player {
+  id          String       @id
+  document    Json
+  memberships Membership[]
+  teamMembers TeamMember[]
+
+  @@map("players")
+}
+
+model Account {
+  id               String            @id
+  email            String            @unique
+  name             String
+  passwordHash     String
+  verified         Boolean           @default(false)
+  role             String            @default("participant")
+  disabled         Boolean           @default(false)
+  createdAt        String
+  mfaSecret        String?
+  mfaPendingSecret String?
+  mfaEnabled       Boolean           @default(false)
+  mfaLastStep      Int               @default(0)
+  notifications    Boolean           @default(true)
+  recoveryHashes   String            @default("[]")
+  sessions         AccountSession[]
+  tokens           AccountToken[]
+  memberships      Membership[]
+  teamMembers      TeamMember[]
+  wallets          Wallet[]
+  predictions      Prediction[]
+  submissions      MatchSubmission[]
+
+  @@map("accounts")
+}
+
+model AccountSession {
+  id        String  @id
+  userId    String
+  expiresAt String
+  createdAt String
+  label     String
+  revoked   Boolean @default(false)
+  user      Account @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([userId])
+  @@map("account_sessions")
+}
+
+model AccountToken {
+  id        String  @id
+  userId    String
+  kind      String
+  expiresAt String
+  used      Boolean @default(false)
+  user      Account @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([userId])
+  @@map("account_tokens")
+}
+
+model Membership {
+  id           String     @id
+  tournamentId Int
+  userId       String
+  playerId     String?
+  kind         String
+  role         String     @default("participant")
+  status       String     @default("pending")
+  checkedIn    Boolean    @default(false)
+  createdAt    String
+  user         Account    @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  tournament   Tournament @relation(fields: [tournamentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  player       Player?    @relation(fields: [playerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([tournamentId, userId])
+  @@map("memberships")
+}
+
+model TeamMember {
+  id       String  @id
+  playerId String
+  userId   String
+  role     String
+  accepted Boolean @default(false)
+  user     Account @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  player   Player  @relation(fields: [playerId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([playerId, userId])
+  @@map("team_members")
+}
+
+model Wallet {
+  id           String        @id
+  tournamentId Int
+  userId       String
+  available    Int           @default(0)
+  reserved     Int           @default(0)
+  user         Account       @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  tournament   Tournament    @relation(fields: [tournamentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  ledger       LedgerEntry[]
+
+  @@unique([tournamentId, userId])
+  @@map("wallets")
+}
+
+model LedgerEntry {
+  id             String @id
+  walletId       String
+  key            String @unique
+  kind           String
+  availableDelta Int
+  reservedDelta  Int
+  reason         String
+  actorId        String
+  createdAt      String
+  wallet         Wallet @relation(fields: [walletId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([walletId])
+  @@map("ledger_entries")
+}
+
+model PredictionMarket {
+  id           String       @id
+  tournamentId Int
+  stageId      Int
+  matchId      Int
+  state        String       @default("open")
+  homeId       String
+  awayId       String
+  lockedAt     String?
+  winner       String?
+  settledAt    String?
+  tournament   Tournament   @relation(fields: [tournamentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  predictions  Prediction[]
+
+  @@unique([tournamentId, stageId, matchId])
+  @@map("prediction_markets")
+}
+
+model Prediction {
+  id        String           @id
+  marketId  String
+  userId    String
+  side      String
+  stake     Int
+  payout    Int              @default(0)
+  status    String           @default("reserved")
+  updatedAt String
+  user      Account          @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  market    PredictionMarket @relation(fields: [marketId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([marketId, userId])
+  @@map("predictions")
+}
+
+model MatchSubmission {
+  id           String     @id
+  tournamentId Int
+  matchId      Int
+  userId       String
+  homeScore    Int
+  awayScore    Int
+  evidence     String
+  status       String     @default("pending")
+  response     String     @default("")
+  createdAt    String
+  user         Account    @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  tournament   Tournament @relation(fields: [tournamentId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([tournamentId, matchId])
+  @@map("match_submissions")
+}
