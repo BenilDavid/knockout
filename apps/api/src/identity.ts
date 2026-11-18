@@ -13,6 +13,12 @@ import { z } from "zod";
 import type { Repository, State } from "./storage.js";
 import { ApiError } from "./tournaments.js";
 import { publicUser, type Account } from "./phase-types.js";
+import {
+  mailFrom as configMailFrom,
+  publicOrigin as configPublicOrigin,
+  sessionSecret as configSessionSecret,
+  smtpUrl as configSmtpUrl,
+} from "./config.js";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -95,12 +101,13 @@ export function requireStaff(s: State, req: FastifyRequest, tid: number) {
   return u;
 }
 const encryptionKey = () => {
-  if (!process.env.SESSION_SECRET || process.env.SESSION_SECRET.length < 32)
+  const secret = configSessionSecret();
+  if (!secret || secret.length < 32)
     throw new ApiError(
       503,
       "Configure SESSION_SECRET (32+ characters) to use two-factor authentication.",
     );
-  return createHash("sha256").update(process.env.SESSION_SECRET).digest();
+  return createHash("sha256").update(secret).digest();
 };
 function encrypt(value: string) {
   const iv = randomBytes(12);
@@ -147,10 +154,9 @@ export async function issueMail(
   u: Account,
   kind: "verify" | "reset",
 ) {
-  if (
-    process.env.NODE_ENV === "production" &&
-    (!process.env.SMTP_URL || !process.env.MAIL_FROM)
-  )
+  const smtpUrl = configSmtpUrl();
+  const mailFrom = configMailFrom();
+  if (process.env.NODE_ENV === "production" && (!smtpUrl || !mailFrom))
     throw new ApiError(
       503,
       "Email delivery is not configured. Contact the organizer.",
@@ -167,7 +173,7 @@ export async function issueMail(
       Date.now() + (kind === "reset" ? 1800000 : 86400000),
     ).toISOString(),
   });
-  const url = new URL(process.env.PUBLIC_ORIGIN ?? "http://127.0.0.1:5173");
+  const url = new URL(configPublicOrigin() ?? "http://127.0.0.1:5173");
   url.searchParams.set("auth", kind);
   url.searchParams.set("token", raw);
   return { email: u.email, url: url.toString(), kind };
@@ -176,9 +182,11 @@ async function deliver(
   mail: Awaited<ReturnType<typeof issueMail>> | undefined,
 ) {
   if (!mail) return {};
-  if (process.env.SMTP_URL) {
-    await nodemailer.createTransport(process.env.SMTP_URL).sendMail({
-      from: process.env.MAIL_FROM,
+  const smtpUrl = configSmtpUrl();
+  const mailFrom = configMailFrom();
+  if (smtpUrl) {
+    await nodemailer.createTransport(smtpUrl).sendMail({
+      from: mailFrom,
       to: mail.email,
       subject:
         mail.kind === "verify"
@@ -230,9 +238,9 @@ export async function installIdentity(app: FastifyInstance, repo: Repository) {
       throw new ApiError(403, "Missing request verification header.");
     const allowed =
       process.env.NODE_ENV === "production"
-        ? [process.env.PUBLIC_ORIGIN]
+        ? [configPublicOrigin()]
         : [
-            process.env.PUBLIC_ORIGIN,
+            configPublicOrigin(),
             "http://127.0.0.1:5173",
             "http://localhost:5173",
           ];

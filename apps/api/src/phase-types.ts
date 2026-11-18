@@ -112,16 +112,16 @@ export interface PhaseState {
   submissions: Submission[];
 }
 export const phaseTables = {
-  accounts: "account",
-  sessions: "accountSession",
-  tokens: "accountToken",
-  memberships: "membership",
-  teamMembers: "teamMember",
-  wallets: "wallet",
-  ledger: "ledgerEntry",
-  markets: "predictionMarket",
-  predictions: "prediction",
-  submissions: "matchSubmission",
+  accounts: "Account",
+  sessions: "AccountSession",
+  tokens: "AccountToken",
+  memberships: "Membership",
+  teamMembers: "TeamMember",
+  wallets: "Wallet",
+  ledger: "LedgerEntry",
+  markets: "PredictionMarket",
+  predictions: "Prediction",
+  submissions: "MatchSubmission",
 } as const;
 export const emptyPhase = (): PhaseState => ({
   accounts: [],
