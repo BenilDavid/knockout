@@ -7,6 +7,13 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "resolveJsonModule": true,
-    "forceConsistentCasingInFileNames": true
+    "forceConsistentCasingInFileNames": true,
+    "baseUrl": ".",
+    "paths": {
+      "@internal/contract/types": ["@prisma/orm-framework/contract/types"],
+      "@internal/sql-contract/types": ["@prisma/orm-family-sql/contract/types"],
+      "@internal/target-postgres/codec-types": ["@prisma/orm-target-postgres/target/codec-types"],
+      "@internal/target-postgres/operation-types": ["@prisma/orm-target-postgres/target/operation-types"]
+    }
   }
 }

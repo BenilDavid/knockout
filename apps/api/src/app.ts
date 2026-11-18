@@ -1,10 +1,18 @@
 import Fastify from "fastify";
 import cookie from "@fastify/cookie";
+import staticFiles from "@fastify/static";
 import { Server } from "socket.io";
+import { dirname, resolve } from "node:path";
+import { existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { installIdentity, requireAdmin, requireStaff } from "./identity.js";
 import { installCommunity, mutateAs, publicTournament } from "./community.js";
 import { z } from "zod";
 import { Repository, audit } from "./storage.js";
+import {
+  publicOrigin as configPublicOrigin,
+  sessionSecret as configSessionSecret,
+} from "./config.js";
 import {
   ApiError,
   requireTournament,
@@ -56,13 +64,15 @@ export async function createApp(
 ) {
   const repo = options.repository ?? new Repository();
   const production = process.env.NODE_ENV === "production";
+  const sessionSecret = configSessionSecret();
+  const publicOrigin = configPublicOrigin();
 
   if (
     production &&
-    (!process.env.SESSION_SECRET ||
-      process.env.SESSION_SECRET.length < 32 ||
-      !process.env.DATABASE_URL ||
-      !process.env.PUBLIC_ORIGIN?.startsWith("https://"))
+    (!sessionSecret ||
+      sessionSecret.length < 32 ||
+      repo.mode !== "postgresql" ||
+      !publicOrigin?.startsWith("https://"))
   )
     throw new Error(
       "Production requires PostgreSQL, SESSION_SECRET (32+ characters), and an HTTPS PUBLIC_ORIGIN.",
@@ -73,9 +83,31 @@ export async function createApp(
     trustProxy: (_address: string, hop: number) => production && hop === 0,
   });
   await app.register(cookie, {
-    secret: process.env.SESSION_SECRET ?? crypto.randomUUID(),
+    secret: sessionSecret ?? crypto.randomUUID(),
   });
   const io = new Server(app.server, { maxHttpBufferSize: 10000 });
+  // The built web app ships inside this build output on Compute; serve it from
+  // the same origin the API answers on. In a source checkout (the vite dev
+  // server owns the UI) the folder is not there and the API serves only /api.
+  const webRoot = resolve(
+    dirname(fileURLToPath(import.meta.url)),
+    "../../../web",
+  );
+  if (existsSync(webRoot)) {
+    await app.register(staticFiles, { root: webRoot });
+    app.setNotFoundHandler((req, reply) => {
+      if (
+        req.method === "GET" &&
+        !/^\/(api|health|socket\.io)(\/|$)/.test(req.url)
+      )
+        return reply.sendFile("index.html");
+      return reply.code(404).send({
+        message: `Route ${req.method}:${req.url} not found`,
+        error: "Not Found",
+        statusCode: 404,
+      });
+    });
+  }
   await installIdentity(app, repo);
   app.addHook("preHandler", async (req) => {
     if (

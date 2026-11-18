@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/server.ts",
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && rm -rf dist/web && ([ -d ../web/dist ] && cp -r ../web/dist dist/web || true)",
     "start": "node dist/apps/api/src/server.js",
     "test": "tsx --test test/tournament.test.ts test/phase2.test.ts",
     "test:postgres": "tsx --test test/postgres.test.ts"
@@ -13,8 +13,8 @@
   "dependencies": {
     "@fastify/cookie": "^11.0.2",
     "@fastify/rate-limit": "^11.2.1",
+    "@fastify/static": "^10.1.11",
     "@node-rs/argon2": "^2.2.2",
-    "@prisma/client": "6.17.1",
     "brackets-manager": "1.11.1",
     "brackets-model": "1.7.0",
     "dotenv": "^17.2.3",

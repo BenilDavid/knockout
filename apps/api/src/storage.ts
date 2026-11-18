@@ -1,7 +1,6 @@
 import { mkdir, readFile, writeFile, rename } from "node:fs/promises";
 import { resolve, dirname } from "node:path";
 import { existsSync } from "node:fs";
-import { PrismaClient, Prisma } from "@prisma/client";
 import type {
   Tournament,
   Player,
@@ -9,6 +8,26 @@ import type {
 } from "../../../packages/contracts/src/index.js";
 import type { CrudInterface } from "brackets-model";
 import { emptyPhase, phaseTables, type PhaseState } from "./phase-types.js";
+import service from "../../../service.mjs";
+
+// The database arrives through the service declaration on Compute and under
+// `prisma dev` (the boot stashes the connection in COMPOSER_DB_URL and
+// `service.load()` hydrates the Prisma ORM 8 client from it). A process booted
+// without the framework — the repository's file-backed tests and local
+// scripts — has no service environment, and the repository keeps its
+// file-backed mode.
+const dbBinding = (() => {
+  try {
+    return service.load().db;
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message.includes('missing required config param "url"')
+    )
+      return undefined;
+    throw error;
+  }
+})();
 
 export type EngineData = Record<string, Record<string, any>[]>;
 export type StoredTournament = Omit<Tournament, "matches" | "rounds"> & {
@@ -33,7 +52,7 @@ export function normalizeState(value: Partial<State>): State {
 async function loadPhase(db: any): Promise<PhaseState> {
   const rows = await Promise.all(
     Object.values(phaseTables).map((table) =>
-      db[table].findMany({ orderBy: { id: "asc" } }),
+      db[table].orderBy((m: any) => m.id.asc()).all(),
     ),
   );
   return Object.fromEntries(
@@ -66,7 +85,6 @@ async function savePhase(db: any, state: State, before: PhaseState) {
       if (key === "ledger" && old)
         throw new Error("Ledger entries are immutable.");
       await db[table].upsert({
-        where: { id: record.id },
         create: record,
         update: record,
       });
@@ -148,7 +166,7 @@ export function audit(
 }
 
 export class Repository {
-  private prisma = process.env.DATABASE_URL ? new PrismaClient() : undefined;
+  private db = dbBinding?.client;
   private file = process.env.DATA_FILE
     ? resolve(process.env.DATA_FILE)
     : resolve(
@@ -157,26 +175,27 @@ export class Repository {
       );
   private queue: Promise<unknown> = Promise.resolve();
   private pendingRead?: Promise<State>;
-  readonly mode = this.prisma ? "postgresql" : "local";
+  // The service's database backs the app unless the process opted into the
+  // file-backed store (the repository's tests and file-backed deployments set
+  // DATA_FILE).
+  private readonly useDb = Boolean(this.db) && !process.env.DATA_FILE;
+  readonly mode = this.useDb ? "postgresql" : "local";
   private async read(): Promise<State> {
-    if (this.prisma) {
-      return this.prisma.$transaction(
-        async (tx) => {
-          const [t, p, phase] = await Promise.all([
-            tx.tournament.findMany(),
-            tx.player.findMany(),
-            loadPhase(tx),
-          ]);
-          return {
-            ...phase,
-            tournaments: t.map(
-              (x) => x.document as unknown as StoredTournament,
-            ),
-            players: p.map((x) => x.document as unknown as Player),
-          };
-        },
-        { isolationLevel: "RepeatableRead", timeout: 30000, maxWait: 10000 },
-      );
+    if (this.db && this.useDb) {
+      return this.db.transaction(async (tx) => {
+        const [t, p, phase] = await Promise.all([
+          tx.orm.public.Tournament.all(),
+          tx.orm.public.Player.all(),
+          loadPhase(tx.orm.public),
+        ]);
+        return {
+          ...phase,
+          tournaments: t.map(
+            (x) => x.document as unknown as StoredTournament,
+          ),
+          players: p.map((x) => x.document as unknown as Player),
+        };
+      });
     }
     try {
       return normalizeState(JSON.parse(await readFile(this.file, "utf8")));
@@ -197,52 +216,49 @@ export class Repository {
   async mutate<T>(fn: (state: State) => Promise<T> | T): Promise<T> {
     const op = this.queue.then(async () => {
       await this.pendingRead;
-      if (this.prisma) {
-        return this.prisma.$transaction(
-          async (tx) => {
-            // A single database lock also guards ID allocation and player enrollment.
-            await tx.$executeRaw`SELECT pg_advisory_xact_lock(751092)`;
-            const [ts, ps, phase] = await Promise.all([
-              tx.tournament.findMany(),
-              tx.player.findMany(),
-              loadPhase(tx),
-            ]);
-            const state: State = {
-              ...phase,
-              tournaments: ts.map(
-                (x) => x.document as unknown as StoredTournament,
-              ),
-              players: ps.map((x) => x.document as unknown as Player),
-            };
-            const beforePhase = structuredClone(phase);
-            const result = await fn(state);
-            for (const t of state.tournaments)
-              await tx.tournament.upsert({
-                where: { id: t.id },
-                create: {
-                  id: t.id,
-                  revision: t.revision,
-                  document: t as unknown as Prisma.InputJsonValue,
-                },
-                update: {
-                  revision: t.revision,
-                  document: t as unknown as Prisma.InputJsonValue,
-                },
-              });
-            for (const p of state.players)
-              await tx.player.upsert({
-                where: { id: p.id },
-                create: {
-                  id: p.id,
-                  document: p as unknown as Prisma.InputJsonValue,
-                },
-                update: { document: p as unknown as Prisma.InputJsonValue },
-              });
-            await savePhase(tx, state, beforePhase);
-            return result;
-          },
-          { timeout: 30000, maxWait: 10000 },
-        );
+      if (this.db && this.useDb) {
+        return this.db.transaction(async (tx) => {
+          // A single database lock also guards ID allocation and player enrollment.
+          await tx.execute(
+            tx.raw.sql`SELECT pg_advisory_xact_lock(751092)`.affectedCount().build(),
+          );
+          const [ts, ps, phase] = await Promise.all([
+            tx.orm.public.Tournament.all(),
+            tx.orm.public.Player.all(),
+            loadPhase(tx.orm.public),
+          ]);
+          const state: State = {
+            ...phase,
+            tournaments: ts.map(
+              (x) => x.document as unknown as StoredTournament,
+            ),
+            players: ps.map((x) => x.document as unknown as Player),
+          };
+          const beforePhase = structuredClone(phase);
+          const result = await fn(state);
+          for (const t of state.tournaments)
+            await tx.orm.public.Tournament.upsert({
+              create: {
+                id: t.id,
+                revision: t.revision,
+                document: t as unknown as any,
+              },
+              update: {
+                revision: t.revision,
+                document: t as unknown as any,
+              },
+            });
+          for (const p of state.players)
+            await tx.orm.public.Player.upsert({
+              create: {
+                id: p.id,
+                document: p as unknown as any,
+              },
+              update: { document: p as unknown as any },
+            });
+          await savePhase(tx.orm.public, state, beforePhase);
+          return result;
+        });
       }
       const state = await this.read();
       const previous = structuredClone(state);
@@ -262,12 +278,13 @@ export class Repository {
     return op;
   }
   async ready() {
-    if (this.prisma) await this.prisma.$queryRaw`SELECT 1`;
+    if (this.db && this.useDb)
+      await this.db.execute(this.db.raw.sql`SELECT 1`.affectedCount().build());
     else await this.snapshot();
   }
   async close() {
     await this.queue;
     await this.pendingRead;
-    await this.prisma?.$disconnect();
+    if (this.db && this.useDb) await this.db.close();
   }
 }

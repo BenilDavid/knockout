@@ -1,3 +1,14 @@
+packages:
+  - apps/*
+  - packages/*
+linkWorkspacePackages: true
 allowBuilds:
   '@prisma/engines': true
   prisma: true
+  esbuild: true
+overrides:
+  effect: 4.0.5
+  '@effect/vitest': 4.0.5
+  '@effect/platform-bun': 4.0.5
+  '@effect/platform-node': 4.0.5
+  '@effect/platform-node-shared': 4.0.5

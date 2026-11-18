@@ -12,22 +12,35 @@
     "build": "npm run build -w @knockout/web && npm run build -w @knockout/api",
     "typecheck": "tsc --noEmit -p apps/api && tsc --noEmit -p apps/web",
     "test": "npm run test -w @knockout/api && npm run test -w @knockout/web",
-    "db:generate": "prisma generate",
     "db:migrate": "prisma migrate deploy",
     "db:seed": "tsx apps/api/src/seed.ts",
     "admin:create": "tsx apps/api/src/admin-create.ts",
     "db:seed-community": "tsx apps/api/src/seed-community.ts"
   },
+  "dependencies": {
+    "@prisma/composer": "0.38.0",
+    "@prisma/composer-prisma-cloud": "0.38.0",
+    "@prisma/orm-framework": "8.0.0-rc.23",
+    "@prisma/orm-family-sql": "8.0.0-rc.23",
+    "@prisma/orm-postgres": "8.0.0-rc.23",
+    "@prisma/orm-target-postgres": "8.0.0-rc.23",
+    "arktype": "^2.2.9",
+    "effect": "4.0.5"
+  },
   "devDependencies": {
     "@types/node": "^22.18.0",
     "concurrently": "^9.2.1",
     "prettier": "^3.6.2",
-    "prisma": "6.17.1",
+    "prisma": "8.0.0-rc.33",
     "typescript": "^5.9.3"
   },
   "overrides": {
     "uuid": "11.1.1",
     "deepmerge-ts": "8.0.0",
-    "effect": "^3.20.0"
+    "effect": "4.0.5",
+    "@effect/vitest": "4.0.5",
+    "@effect/platform-bun": "4.0.5",
+    "@effect/platform-node": "4.0.5",
+    "@effect/platform-node-shared": "4.0.5"
   }
 }
