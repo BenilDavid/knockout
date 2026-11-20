@@ -11,7 +11,7 @@
   },
   "dependencies": {
     "@floating-ui/dom": "^1.8.0",
-    "@knockout/contracts": "*",
+    "@knockout/contracts": "workspace:*",
     "clsx": "^2.1.1",
     "lucide-react": "^0.468.0",
     "motion": "^14.5.0",
