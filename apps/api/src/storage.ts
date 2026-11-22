@@ -8,7 +8,13 @@ import type {
   Audit,
 } from "../../../packages/contracts/src/index.js";
 import type { CrudInterface } from "brackets-model";
-import { emptyPhase, phaseTables, type PhaseState } from "./phase-types.js";
+import {
+  emptyPhase,
+  phaseTables,
+  type Account,
+  type AccountSession,
+  type PhaseState,
+} from "./phase-types.js";
 
 export type EngineData = Record<string, Record<string, any>[]>;
 export type StoredTournament = Omit<Tournament, "matches" | "rounds"> & {
@@ -157,6 +163,10 @@ export class Repository {
       );
   private queue: Promise<unknown> = Promise.resolve();
   private pendingRead?: Promise<State>;
+  // Reads are served from memory until the next write (or a short TTL, which
+  // also covers CLI scripts that write to the database directly).
+  private cache?: { state: State; at: number };
+  private static readonly CACHE_TTL_MS = 5000;
   readonly mode = this.prisma ? "postgresql" : "local";
   private async read(): Promise<State> {
     if (this.prisma) {
@@ -188,11 +198,44 @@ export class Repository {
   }
   async snapshot() {
     await this.queue;
+    if (this.cache && Date.now() - this.cache.at < Repository.CACHE_TTL_MS)
+      return structuredClone(this.cache.state);
     if (!this.pendingRead)
-      this.pendingRead = this.read().finally(() => {
-        this.pendingRead = undefined;
-      });
+      this.pendingRead = this.read()
+        .then((state) => {
+          this.cache = { state, at: Date.now() };
+          return state;
+        })
+        .finally(() => {
+          this.pendingRead = undefined;
+        });
     return structuredClone(await this.pendingRead);
+  }
+  /** Auth hook lookup: two primary-key reads instead of loading every table. */
+  async sessionContext(
+    sessionId: string,
+  ): Promise<{ session: AccountSession; account: Account } | undefined> {
+    await this.queue;
+    if (!this.prisma) {
+      const s = await this.snapshot();
+      const session = s.sessions.find((x) => x.id === sessionId);
+      const account =
+        session && s.accounts.find((u) => u.id === session.userId);
+      return session && account ? { session, account } : undefined;
+    }
+    const session = await this.prisma.accountSession.findUnique({
+      where: { id: sessionId },
+    });
+    if (!session) return undefined;
+    const account = await this.prisma.account.findUnique({
+      where: { id: session.userId },
+    });
+    return account
+      ? {
+          session: session as unknown as AccountSession,
+          account: account as unknown as Account,
+        }
+      : undefined;
   }
   async mutate<T>(fn: (state: State) => Promise<T> | T): Promise<T> {
     const op = this.queue.then(async () => {
@@ -215,8 +258,16 @@ export class Repository {
               players: ps.map((x) => x.document as unknown as Player),
             };
             const beforePhase = structuredClone(phase);
+            const beforeTournaments = new Map(
+              state.tournaments.map((t) => [t.id, JSON.stringify(t)]),
+            );
+            const beforePlayers = new Map(
+              state.players.map((p) => [p.id, JSON.stringify(p)]),
+            );
             const result = await fn(state);
-            for (const t of state.tournaments)
+            // Write only the documents this operation actually changed.
+            for (const t of state.tournaments) {
+              if (beforeTournaments.get(t.id) === JSON.stringify(t)) continue;
               await tx.tournament.upsert({
                 where: { id: t.id },
                 create: {
@@ -229,7 +280,9 @@ export class Repository {
                   document: t as unknown as Prisma.InputJsonValue,
                 },
               });
-            for (const p of state.players)
+            }
+            for (const p of state.players) {
+              if (beforePlayers.get(p.id) === JSON.stringify(p)) continue;
               await tx.player.upsert({
                 where: { id: p.id },
                 create: {
@@ -238,6 +291,7 @@ export class Repository {
                 },
                 update: { document: p as unknown as Prisma.InputJsonValue },
               });
+            }
             await savePhase(tx, state, beforePhase);
             return result;
           },
@@ -258,7 +312,11 @@ export class Repository {
       await rename(`${this.file}.tmp`, this.file);
       return result;
     });
-    this.queue = op.catch(() => {});
+    this.queue = op
+      .catch(() => {})
+      .then(() => {
+        this.cache = undefined;
+      });
     return op;
   }
   async ready() {

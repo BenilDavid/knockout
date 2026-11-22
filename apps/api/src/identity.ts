@@ -214,15 +214,10 @@ export async function installIdentity(app: FastifyInstance, repo: Repository) {
   app.addHook("preHandler", async (req) => {
     const raw = req.cookies.knockout_session;
     if (raw) {
-      const state = await repo.snapshot();
-      const session = state.sessions.find(
-        (s) => s.id === digest(raw) && !s.revoked && s.expiresAt > now(),
-      );
-      if (session) {
-        req.user = state.accounts.find(
-          (u) => u.id === session.userId && !u.disabled,
-        );
-        req.sessionId = session.id;
+      const found = await repo.sessionContext(digest(raw));
+      if (found && !found.session.revoked && found.session.expiresAt > now()) {
+        req.user = found.account.disabled ? undefined : found.account;
+        req.sessionId = found.session.id;
       }
     }
     if (["GET", "HEAD", "OPTIONS"].includes(req.method)) return;

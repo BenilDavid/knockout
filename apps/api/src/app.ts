@@ -116,7 +116,7 @@ export async function createApp(
     io.to(`tournament:${tournamentId}`).emit("bracket:changed", {
       tournamentId,
     });
-    io.emit("tournaments:changed");
+    io.emit("tournaments:changed", { tournamentId });
   };
   installCommunity(app, repo, changed);
   app.get("/health/live", async () => ({ status: "ok" }));

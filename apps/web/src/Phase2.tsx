@@ -906,7 +906,9 @@ export function CommunityPanel({
   useEffect(() => {
     setData(null);
     void load().catch((e) => setError(e.message));
-    const timer = setInterval(() => void load().catch(() => {}), 10000);
+    const timer = setInterval(() => {
+      if (!document.hidden) void load().catch(() => {});
+    }, 30000);
     return () => clearInterval(timer);
   }, [load]);
   // Re-fetch after parent Socket.IO invalidation without overwriting stake forms.

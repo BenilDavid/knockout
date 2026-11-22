@@ -266,6 +266,7 @@ export default function App() {
     [error, setError] = useState(""),
     [sidebar, setSidebar] = useState(false),
     [connected, setConnected] = useState(false);
+  const socketUp = useRef(false);
   const t = events.find((e) => e.id === selectedId);
   const [staffEvents, setStaffEvents] = useState<number[]>([]);
   const isAdmin = session.user?.role === "admin";
@@ -314,14 +315,26 @@ export default function App() {
     const expired = () => {
       void refresh();
     };
+    // Collapse bursts of change events into a single refresh.
+    let timer: number | undefined;
+    const refreshSoon = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => void refresh(), 300);
+    };
     window.addEventListener("knockout:sessionexpired", expired);
     socket.on("connect", () => {
+      socketUp.current = true;
       setConnected(true);
       void refresh();
     });
-    socket.on("disconnect", () => setConnected(false));
-    socket.on("tournaments:changed", refresh);
+    socket.on("disconnect", () => {
+      socketUp.current = false;
+      setConnected(false);
+    });
+    socket.on("tournaments:changed", refreshSoon);
     return () => {
+      window.clearTimeout(timer);
+      socketUp.current = false;
       socket.disconnect();
       window.removeEventListener("knockout:sessionexpired", expired);
     };
@@ -345,12 +358,16 @@ export default function App() {
     work: () => Promise<unknown>,
     message: string,
     dismiss = false,
+    apply?: (result: any) => void,
   ) => {
     setBusy(true);
     setError("");
     try {
-      await work();
-      await refresh();
+      const result = await work();
+      // Show the saved result straight away. The socket event (or this fallback
+      // when it is offline) brings in everything else without blocking the UI.
+      apply?.(result);
+      if (!socketUp.current) void refresh();
       if (dismiss) close();
       notify(message);
     } catch (e) {
@@ -443,6 +460,7 @@ export default function App() {
       () => api("/players", "POST", { name: f.get("name"), tag: f.get("tag") }),
       "Participant added to your roster.",
       true,
+      (p: Player) => setPlayers((all) => [...all, p]),
     );
   };
   const headerTitles: Record<View | CommunityView, string> = {
@@ -1831,6 +1849,13 @@ export default function App() {
                               playerId: p.id,
                             }),
                           `${p.name} added to the tournament.`,
+                          false,
+                          (updated: Tournament) =>
+                            setEvents((all) =>
+                              all.map((e) =>
+                                e.id === updated.id ? updated : e,
+                              ),
+                            ),
                         )
                       }
                     >
