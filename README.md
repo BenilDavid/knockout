@@ -76,20 +76,27 @@ Points history, prediction cards, result review, and leaderboards are available 
 
 ## Email
 
-Production account verification and password recovery require SMTP_URL and MAIL_FROM. For example:
+Production account verification and password recovery require MAIL_FROM plus an email provider. [Resend](https://resend.com) is used when RESEND_API_KEY is set:
+
+```dotenv
+RESEND_API_KEY=re_xxxxxxxxxxxxxxxxxxxxxxxx
+MAIL_FROM=Knockout <no-reply@example.com>
+```
+
+Verify the MAIL_FROM domain in the Resend dashboard first, or Resend rejects the send. Any SMTP server still works as a fallback when RESEND_API_KEY is not set (Resend wins if both are set):
 
 ```dotenv
 SMTP_URL=smtps://username:URL_ENCODED_PASSWORD@mail.example.com:465
 MAIL_FROM=Knockout <no-reply@example.com>
 ```
 
-In development without SMTP, registration/recovery responses show a **Local email preview** link so the complete flow can be exercised without sending mail. Production never returns those links. Tokens are hashed, expiring, single-use records. Passwords use Argon2id; sessions use opaque random tokens whose hashes are stored server-side. Resetting a password or changing account privileges revokes existing sessions. Two-factor authentication uses encrypted TOTP secrets and hashed single-use recovery codes; save the codes when shown.
+In development without a provider, registration/recovery responses show a **Local email preview** link so the complete flow can be exercised without sending mail. Production never returns those links. Tokens are hashed, expiring, single-use records. Passwords use Argon2id; sessions use opaque random tokens whose hashes are stored server-side. Resetting a password or changing account privileges revokes existing sessions. Two-factor authentication uses encrypted TOTP secrets and hashed single-use recovery codes; save the codes when shown.
 
 In-app result notices are available through My dashboard and the account preference. Scheduled email reminders, push notifications, and evidence file uploads are not included; score evidence currently accepts a text note or URL.
 
 ## Self-hosted HTTPS deployment
 
-1. Copy `deploy/production.env.example` to `.env` and fill in unique secrets, SMTP settings, SITE_ADDRESS, and its matching HTTPS PUBLIC_ORIGIN.
+1. Copy `deploy/production.env.example` to `.env` and fill in unique secrets, email settings (RESEND_API_KEY and MAIL_FROM, or SMTP), SITE_ADDRESS, and its matching HTTPS PUBLIC_ORIGIN.
 2. Point DNS at the host and allow inbound 80/443.
 3. Run `docker compose up --build -d`.
 4. Provision an administrator using the API image (set ADMIN_EMAIL and ADMIN_PASSWORD in the shell, without committing them):

@@ -7,12 +7,12 @@ import {
 } from "node:crypto";
 import { hash, verify } from "@node-rs/argon2";
 import { TOTP, Secret } from "otpauth";
-import nodemailer from "nodemailer";
 import rateLimit from "@fastify/rate-limit";
 import { z } from "zod";
 import type { Repository, State } from "./storage.js";
 import { ApiError } from "./tournaments.js";
 import { publicUser, type Account } from "./phase-types.js";
+import { actionEmail, mailProvider, sendMail } from "./mailer.js";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -147,10 +147,7 @@ export async function issueMail(
   u: Account,
   kind: "verify" | "reset",
 ) {
-  if (
-    process.env.NODE_ENV === "production" &&
-    (!process.env.SMTP_URL || !process.env.MAIL_FROM)
-  )
+  if (process.env.NODE_ENV === "production" && !mailProvider())
     throw new ApiError(
       503,
       "Email delivery is not configured. Contact the organizer.",
@@ -176,18 +173,22 @@ async function deliver(
   mail: Awaited<ReturnType<typeof issueMail>> | undefined,
 ) {
   if (!mail) return {};
-  if (process.env.SMTP_URL) {
-    await nodemailer.createTransport(process.env.SMTP_URL).sendMail({
-      from: process.env.MAIL_FROM,
-      to: mail.email,
-      subject:
-        mail.kind === "verify"
-          ? "Verify your Knockout account"
-          : "Reset your Knockout password",
-      text: `${mail.kind === "verify" ? "Verify your email" : "Reset your password"} using this link:\n${mail.url}\n\nIf you did not request this, ignore this email.`,
-    });
-    return {};
-  }
+  const isVerify = mail.kind === "verify";
+  const sent = await sendMail({
+    to: mail.email,
+    subject: isVerify
+      ? "Verify your Knockout account"
+      : "Reset your Knockout password",
+    ...actionEmail({
+      heading: isVerify ? "Verify your email" : "Reset your password",
+      intro: isVerify
+        ? "Confirm your email address to finish setting up your Knockout account."
+        : "Use the button below to choose a new password for your Knockout account.",
+      button: isVerify ? "Verify email" : "Reset password",
+      url: mail.url,
+    }),
+  });
+  if (sent) return {};
   return process.env.NODE_ENV === "production"
     ? {}
     : { developmentLink: mail.url };

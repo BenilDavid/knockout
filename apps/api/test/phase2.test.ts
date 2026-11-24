@@ -13,6 +13,7 @@ async function fixture() {
   process.env.DATA_FILE = join(dir, "state.json");
   delete process.env.DATABASE_URL;
   delete process.env.SMTP_URL;
+  delete process.env.RESEND_API_KEY;
   process.env.SESSION_SECRET = "test-only-session-secret-32-characters-long";
   const { app, repo } = await createApp({ seedDemo: false, logger: false });
   await repo.mutate(async (s) =>
