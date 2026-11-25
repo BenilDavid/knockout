@@ -341,6 +341,12 @@ export function AccountPanel({
     [sessions, setSessions] = useState<AnyRecord[]>([]),
     [users, setUsers] = useState<AnyRecord[]>([]),
     [roster, setRoster] = useState<AnyRecord[]>([]);
+  const awaiting = (u: AnyRecord) => !u.verified && !u.disabled;
+  const pending = users.filter(awaiting).length;
+  // Accounts awaiting verification first; otherwise keep the server order.
+  const sortedUsers = [...users].sort(
+    (a, b) => Number(awaiting(b)) - Number(awaiting(a)),
+  );
   const [error, setError] = useState(""),
     [notice, setNotice] = useState(""),
     [busy, setBusy] = useState(false),
@@ -804,8 +810,14 @@ export function AccountPanel({
             Promotions and access changes require a reason. Your own access is
             protected.
           </p>
+          {pending > 0 && (
+            <p className="result-notice">
+              {pending} account(s) awaiting verification. If their email could
+              not be confirmed, choose “Verify account” to approve them by hand.
+            </p>
+          )}
           <div className="compact-list">
-            {users.map((u) => (
+            {sortedUsers.map((u) => (
               <div key={u.id}>
                 <div>
                   <strong>{u.name}</strong>
@@ -828,18 +840,25 @@ export function AccountPanel({
                       void run(
                         () =>
                           api(`/admin/users/${u.id}`, "PATCH", {
-                            ...(action === "disable"
-                              ? { disabled: true }
-                              : action === "enable"
-                                ? { disabled: false }
-                                : { role: action }),
+                            ...(action === "verify"
+                              ? { verified: true }
+                              : action === "disable"
+                                ? { disabled: true }
+                                : action === "enable"
+                                  ? { disabled: false }
+                                  : { role: action }),
                             reason: f.get("reason"),
                           }),
-                        "Account access updated.",
+                        action === "verify"
+                          ? "Account verified."
+                          : "Account access updated.",
                       );
                     }}
                   >
                     <select name="action" aria-label={`Access for ${u.name}`}>
+                      {!u.verified && (
+                        <option value="verify">Verify account</option>
+                      )}
                       <option value={u.disabled ? "enable" : "disable"}>
                         {u.disabled ? "Enable" : "Disable"}
                       </option>

@@ -21,6 +21,20 @@ export function mailProvider(): "resend" | "smtp" | null {
 }
 
 /**
+ * When MANUAL_VERIFICATION is "true" (or "1"), an administrator can verify
+ * accounts by hand, and an email that cannot be delivered no longer blocks
+ * registration. Leave it unset once real email delivery works for everyone.
+ */
+export const manualVerification = () =>
+  ["true", "1"].includes(
+    (process.env.MANUAL_VERIFICATION ?? "").trim().toLowerCase(),
+  );
+
+/** Shown instead of "verify your email" when approval is manual. */
+export const pendingApprovalMessage =
+  "Account created. We couldn't send a verification email, so an administrator will approve your account.";
+
+/**
  * Sends one email. Returns false when no provider is configured so the caller
  * can decide on a fallback (the development preview link). Throws an ApiError
  * when a configured provider fails to deliver.

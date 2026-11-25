@@ -90,6 +90,18 @@ SMTP_URL=smtps://username:URL_ENCODED_PASSWORD@mail.example.com:465
 MAIL_FROM=Knockout <no-reply@example.com>
 ```
 
+### Manual verification
+
+If email cannot reach every user (for example Resend's `onboarding@resend.dev` sender only delivers to your own address), set `MANUAL_VERIFICATION=true`:
+
+- Registration succeeds even when the verification email cannot be sent, and the user is told an administrator will approve the account.
+- Unverified accounts are listed first under **Account management**. Choose **Verify account**, enter a reason (it is recorded in the audit log), and press Apply. The user can then sign in.
+- Until then, sign-in says the account is waiting for administrator approval.
+- Manual verification confirms nothing about email ownership, so use it only for private or small deployments. Password-reset emails are unaffected and still need working delivery.
+- When real delivery works, remove the variable. Accounts still awaiting approval can use **Resend verification** on the sign-in screen to get a normal email.
+
+Leave it unset for the standard behaviour, where a failed verification email returns an error.
+
 In development without a provider, registration/recovery responses show a **Local email preview** link so the complete flow can be exercised without sending mail. Production never returns those links. Tokens are hashed, expiring, single-use records. Passwords use Argon2id; sessions use opaque random tokens whose hashes are stored server-side. Resetting a password or changing account privileges revokes existing sessions. Two-factor authentication uses encrypted TOTP secrets and hashed single-use recovery codes; save the codes when shown.
 
 In-app result notices are available through My dashboard and the account preference. Scheduled email reminders, push notifications, and evidence file uploads are not included; score evidence currently accepts a text note or URL.

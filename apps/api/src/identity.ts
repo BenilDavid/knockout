@@ -12,7 +12,13 @@ import { z } from "zod";
 import type { Repository, State } from "./storage.js";
 import { ApiError } from "./tournaments.js";
 import { publicUser, type Account } from "./phase-types.js";
-import { actionEmail, mailProvider, sendMail } from "./mailer.js";
+import {
+  actionEmail,
+  mailProvider,
+  manualVerification,
+  pendingApprovalMessage,
+  sendMail,
+} from "./mailer.js";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -54,11 +60,17 @@ export function makeAccount(
     recoveryHashes: "[]",
   };
 }
+const unverifiedError = (when: "to continue" | "before signing in") =>
+  new ApiError(
+    403,
+    manualVerification()
+      ? "Your account is waiting for administrator approval."
+      : `Verify your email ${when}.`,
+  );
 export function requireUser(req: FastifyRequest): Account {
   if (!req.user || req.user.disabled)
     throw new ApiError(401, "Sign in to continue.");
-  if (!req.user.verified)
-    throw new ApiError(403, "Verify your email to continue.");
+  if (!req.user.verified) throw unverifiedError("to continue");
   return req.user;
 }
 export function requireAdmin(req: FastifyRequest) {
@@ -147,7 +159,13 @@ export async function issueMail(
   u: Account,
   kind: "verify" | "reset",
 ) {
-  if (process.env.NODE_ENV === "production" && !mailProvider())
+  // With manual verification, accounts can be approved by an administrator
+  // even when no email provider is configured (verification mail only).
+  if (
+    process.env.NODE_ENV === "production" &&
+    !mailProvider() &&
+    !(manualVerification() && kind === "verify")
+  )
     throw new ApiError(
       503,
       "Email delivery is not configured. Contact the organizer.",
@@ -169,29 +187,44 @@ export async function issueMail(
   url.searchParams.set("token", raw);
   return { email: u.email, url: url.toString(), kind };
 }
+/**
+ * pendingApproval is set only when MANUAL_VERIFICATION is on and a verification
+ * email could not be sent: the account exists and waits for an administrator.
+ */
 async function deliver(
   mail: Awaited<ReturnType<typeof issueMail>> | undefined,
-) {
+): Promise<{ pendingApproval?: boolean; developmentLink?: string }> {
   if (!mail) return {};
   const isVerify = mail.kind === "verify";
-  const sent = await sendMail({
-    to: mail.email,
-    subject: isVerify
-      ? "Verify your Knockout account"
-      : "Reset your Knockout password",
-    ...actionEmail({
-      heading: isVerify ? "Verify your email" : "Reset your password",
-      intro: isVerify
-        ? "Confirm your email address to finish setting up your Knockout account."
-        : "Use the button below to choose a new password for your Knockout account.",
-      button: isVerify ? "Verify email" : "Reset password",
-      url: mail.url,
-    }),
-  });
+  const manual = isVerify && manualVerification();
+  let sent = false;
+  try {
+    sent = await sendMail({
+      to: mail.email,
+      subject: isVerify
+        ? "Verify your Knockout account"
+        : "Reset your Knockout password",
+      ...actionEmail({
+        heading: isVerify ? "Verify your email" : "Reset your password",
+        intro: isVerify
+          ? "Confirm your email address to finish setting up your Knockout account."
+          : "Use the button below to choose a new password for your Knockout account.",
+        button: isVerify ? "Verify email" : "Reset password",
+        url: mail.url,
+      }),
+    });
+  } catch (err) {
+    if (!manual) throw err;
+    // The provider error itself is already logged by the mailer.
+    console.warn(
+      "Verification email was not delivered; the account needs manual verification.",
+    );
+    return { pendingApproval: true };
+  }
   if (sent) return {};
-  return process.env.NODE_ENV === "production"
-    ? {}
-    : { developmentLink: mail.url };
+  if (process.env.NODE_ENV !== "production")
+    return { developmentLink: mail.url };
+  return manual ? { pendingApproval: true } : {};
 }
 export async function installIdentity(app: FastifyInstance, repo: Repository) {
   await app.register(rateLimit, {
@@ -283,9 +316,12 @@ export async function installIdentity(app: FastifyInstance, repo: Repository) {
         s.accounts.push(u);
         return issueMail(s, u, "verify");
       });
+      const { pendingApproval, ...extra } = await deliver(mail);
       return {
-        message: "Check your email to verify your account.",
-        ...(await deliver(mail)),
+        message: pendingApproval
+          ? pendingApprovalMessage
+          : "Check your email to verify your account.",
+        ...extra,
       };
     },
     true,
@@ -336,8 +372,7 @@ export async function installIdentity(app: FastifyInstance, repo: Repository) {
       const valid = await verify(candidate?.passwordHash ?? dummy, b.password);
       if (!candidate || !valid || candidate.disabled)
         throw new ApiError(401, "Incorrect email or password.");
-      if (!candidate.verified)
-        throw new ApiError(403, "Verify your email before signing in.");
+      if (!candidate.verified) throw unverifiedError("before signing in");
       if (b.admin && candidate.role !== "admin")
         throw new ApiError(403, "This account is not an administrator.");
       if (candidate.mfaEnabled && !b.code)
@@ -380,9 +415,14 @@ export async function installIdentity(app: FastifyInstance, repo: Repository) {
           if (u && (kind === "forgot" || !u.verified))
             return issueMail(s, u, kind === "forgot" ? "reset" : "verify");
         });
+        const { pendingApproval, ...extra } = await deliver(mail);
         return {
-          message: "If an eligible account exists, an email has been sent.",
-          ...(await deliver(mail)),
+          message:
+            "If an eligible account exists, an email has been sent." +
+            (kind === "resend" && manualVerification()
+              ? " If you don't receive one, ask an administrator to approve your account."
+              : ""),
+          ...extra,
         };
       },
       true,

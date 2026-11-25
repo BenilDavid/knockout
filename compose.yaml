@@ -46,6 +46,7 @@ services:
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       SMTP_URL: ${SMTP_URL:-}
       MAIL_FROM: ${MAIL_FROM:-}
+      MANUAL_VERIFICATION: ${MANUAL_VERIFICATION:-}
     depends_on:
       migrate:
         condition: service_completed_successfully

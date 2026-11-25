@@ -276,6 +276,8 @@ export function installCommunity(
       .object({
         disabled: z.boolean().optional(),
         role: z.enum(["admin", "participant"]).optional(),
+        // Manually verify an account whose email could not be confirmed.
+        verified: z.literal(true).optional(),
         reason: reasonSchema,
       })
       .parse(req.body);
@@ -298,10 +300,23 @@ export function installCommunity(
         );
       if (b.disabled !== undefined) u.disabled = b.disabled;
       if (b.role) u.role = b.role;
+      const verifiedNow = b.verified && !u.verified;
+      if (verifiedNow) {
+        u.verified = true;
+        // Old verification links must not work after manual approval.
+        for (const tok of s.tokens.filter(
+          (x) => x.userId === u.id && x.kind === "verify",
+        ))
+          tok.used = true;
+      }
       for (const session of s.sessions.filter((x) => x.userId === u.id))
         session.revoked = true;
       for (const t of s.tournaments)
-        audit(t, "STAFF_ACCOUNT_CHANGED", `${u.name}: ${b.reason}`);
+        audit(
+          t,
+          "STAFF_ACCOUNT_CHANGED",
+          `${u.name}: ${verifiedNow ? "verified by administrator. " : ""}${b.reason}`,
+        );
       return publicUser(u);
     });
   });
