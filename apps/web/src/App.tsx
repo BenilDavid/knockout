@@ -269,6 +269,10 @@ export default function App() {
   const socketUp = useRef(false);
   const t = events.find((e) => e.id === selectedId);
   const [staffEvents, setStaffEvents] = useState<number[]>([]);
+  const [picked, setPicked] = useState<string[]>([]);
+  useEffect(() => {
+    if (modal !== "enroll") setPicked([]);
+  }, [modal]);
   const isAdmin = session.user?.role === "admin";
   const initials = (session.user?.name ?? "Guest")
     .split(/\s+/)
@@ -1833,56 +1837,115 @@ export default function App() {
               </div>
             </form>
           )}
-          {modal === "enroll" && t && (
-            <>
-              <div className="enroll-list">
-                {players
-                  .filter((p) => !t.entries.some((e) => e.id === p.id))
-                  .map((p) => (
-                    <button
-                      key={p.id}
-                      disabled={busy || t.entries.length >= t.capacity}
-                      onClick={() =>
-                        void doWork(
-                          () =>
-                            api(`/tournaments/${t.id}/entries`, "POST", {
-                              playerId: p.id,
-                            }),
-                          `${p.name} added to the tournament.`,
-                          false,
-                          (updated: Tournament) =>
-                            setEvents((all) =>
-                              all.map((e) =>
-                                e.id === updated.id ? updated : e,
-                              ),
-                            ),
-                        )
-                      }
-                    >
-                      <TeamMark name={p.name} color={p.color} />
-                      <strong>{p.name}</strong>
-                      <Plus size={16} />
-                    </button>
-                  ))}
-                {players.every((p) => t.entries.some((e) => e.id === p.id)) && (
-                  <p className="muted">
-                    Everyone in your roster is already registered.
-                  </p>
+          {modal === "enroll" && t && (() => {
+            const available = players.filter(
+              (p) => !t.entries.some((e) => e.id === p.id),
+            );
+            const spotsLeft = Math.max(0, t.capacity - t.entries.length);
+            const chosen = picked.filter((pid) =>
+              available.some((p) => p.id === pid),
+            );
+            const full = chosen.length >= spotsLeft;
+            const allOn =
+              available.length > 0 &&
+              chosen.length === Math.min(available.length, spotsLeft);
+            return (
+              <>
+                {available.length > 0 && (
+                  <div className="enroll-toolbar">
+                    <label className="check-field">
+                      <input
+                        type="checkbox"
+                        checked={allOn}
+                        disabled={busy || spotsLeft === 0}
+                        onChange={() =>
+                          setPicked(
+                            allOn
+                              ? []
+                              : available.slice(0, spotsLeft).map((p) => p.id),
+                          )
+                        }
+                      />
+                      <span>Select all</span>
+                    </label>
+                    <span className="muted">
+                      {chosen.length} selected · {spotsLeft} spot
+                      {spotsLeft === 1 ? "" : "s"} left
+                    </span>
+                  </div>
                 )}
-              </div>
-              <div className="modal-actions">
-                <button
-                  className="text-button"
-                  onClick={() => setModal("player")}
-                >
-                  <Plus size={14} /> Create a new participant
-                </button>
-                <button className="primary-button" onClick={close}>
-                  Done <Check size={15} />
-                </button>
-              </div>
-            </>
-          )}
+                <div className="enroll-list">
+                  {available.map((p) => {
+                    const on = chosen.includes(p.id);
+                    return (
+                      <label
+                        key={p.id}
+                        className={`enroll-row${on ? " on" : ""}`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={on}
+                          disabled={busy || (!on && full)}
+                          onChange={() =>
+                            setPicked(
+                              on
+                                ? chosen.filter((pid) => pid !== p.id)
+                                : [...chosen, p.id],
+                            )
+                          }
+                        />
+                        <TeamMark name={p.name} color={p.color} />
+                        <strong>{p.name}</strong>
+                      </label>
+                    );
+                  })}
+                  {available.length === 0 && (
+                    <p className="muted">
+                      Everyone in your roster is already registered.
+                    </p>
+                  )}
+                </div>
+                <div className="modal-actions">
+                  <button
+                    className="text-button"
+                    onClick={() => setModal("player")}
+                  >
+                    <Plus size={14} /> Create a new participant
+                  </button>
+                  <button className="secondary-button" onClick={close}>
+                    Cancel
+                  </button>
+                  <button
+                    className="primary-button"
+                    disabled={busy || chosen.length === 0}
+                    onClick={() =>
+                      void doWork(
+                        () =>
+                          api(`/tournaments/${t.id}/entries/bulk`, "POST", {
+                            playerIds: chosen,
+                          }),
+                        `${chosen.length} participant${chosen.length === 1 ? "" : "s"} added to the tournament.`,
+                        true,
+                        (updated: Tournament) =>
+                          setEvents((all) =>
+                            all.map((e) => (e.id === updated.id ? updated : e)),
+                          ),
+                      )
+                    }
+                  >
+                    {busy ? (
+                      <LoaderCircle className="spin" size={15} />
+                    ) : (
+                      <Plus size={15} />
+                    )}
+                    {chosen.length
+                      ? `Add ${chosen.length} selected`
+                      : "Add selected"}
+                  </button>
+                </div>
+              </>
+            );
+          })()}
           {modal === "help" && (
             <div className="playbook">
               {[

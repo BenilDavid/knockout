@@ -329,6 +329,47 @@ test("tournament lifecycle, persistence, validation, and isolation", async (ctx)
         await request("POST", `/tournaments/${t.id}/stages`, undefined, 400);
       },
     );
+    await ctx.test("bulk registration is atomic and ordered", async () => {
+      let t = await make("Bulk Cup", "single_elimination", 1);
+      const ids: string[] = [];
+      for (let i = 1; i <= 8; i++) {
+        const p = await request(
+          "POST",
+          "/players",
+          { name: `Extra ${i}`, tag: `X${i}` },
+          201,
+        );
+        ids.push(p.id);
+      }
+      const bulk = (playerIds: string[], expected = 200) =>
+        request(
+          "POST",
+          `/tournaments/${t.id}/entries/bulk`,
+          { playerIds },
+          expected,
+        );
+      const count = async () =>
+        (await request("GET", `/tournaments/${t.id}`)).entries.length;
+      await bulk([], 400);
+      await bulk(ids, 409); // 8 selected, 7 spots
+      assert.equal(await count(), 1);
+      await bulk([ids[0], "missing"], 404);
+      assert.equal(await count(), 1);
+      t = await bulk([ids[2], ids[0], ids[2], ids[1]]);
+      assert.deepEqual(
+        t.entries.map((e: { name: string; seed: number }) => [e.name, e.seed]),
+        [
+          ["Bulk Cup Team 1", 1],
+          ["Extra 3", 2],
+          ["Extra 1", 3],
+          ["Extra 2", 4],
+        ],
+      );
+      await bulk([ids[3], ids[0]], 409); // Extra 1 already in
+      assert.equal(await count(), 4);
+      await request("POST", `/tournaments/${t.id}/stages`);
+      await bulk([ids[4]], 409);
+    });
     await ctx.test(
       "metadata, archive protection, and verification headers",
       async () => {

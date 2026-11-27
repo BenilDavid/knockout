@@ -251,6 +251,53 @@ export async function createApp(
       return t;
     },
   );
+  app.post<{ Params: { id: string } }>(
+    "/api/tournaments/:id/entries/bulk",
+    async (req) => {
+      const body = z
+        .object({ playerIds: z.array(z.string()).min(1).max(128) })
+        .parse(req.body);
+      const t = await mutateAs(repo, req, (s) => {
+        const t = requireTournament(s, id(req.params.id));
+        if (t.status !== "draft")
+          throw new ApiError(
+            409,
+            "Registration closes once the bracket is generated.",
+          );
+        const players = [...new Set(body.playerIds)].map((pid) => {
+          const p = s.players.find((p) => p.id === pid);
+          if (!p) throw new ApiError(404, "Participant not found.");
+          return p;
+        });
+        const taken = players.filter((p) =>
+          t.entries.some(
+            (e) =>
+              e.id === p.id || e.name.toLowerCase() === p.name.toLowerCase(),
+          ),
+        );
+        if (taken.length)
+          throw new ApiError(
+            409,
+            `Already registered: ${taken.map((p) => p.name).join(", ")}.`,
+          );
+        const spots = t.capacity - t.entries.length;
+        if (players.length > spots)
+          throw new ApiError(
+            409,
+            spots > 0
+              ? `Only ${spots} spot${spots === 1 ? "" : "s"} left; you selected ${players.length}.`
+              : "This tournament is full.",
+          );
+        for (const p of players) {
+          t.entries.push({ ...p, seed: t.entries.length + 1 });
+          audit(t, "PARTICIPANT_ADDED", `${p.name} joined the tournament.`);
+        }
+        return serialize(t);
+      });
+      changed(t.id);
+      return t;
+    },
+  );
   app.delete<{ Params: { id: string; entryId: string } }>(
     "/api/tournaments/:id/entries/:entryId",
     async (req) => {

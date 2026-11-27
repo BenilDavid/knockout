@@ -1968,6 +1968,42 @@ dd {
   margin-top: 23px;
   gap: 7px;
 }
+.enroll-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 23px;
+  font-size: 11px;
+}
+.enroll-toolbar + .enroll-list {
+  margin-top: 12px;
+}
+.enroll-list > .enroll-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid #303a48;
+  border-radius: 6px;
+  padding: 11px;
+  background: #131922;
+  cursor: pointer;
+}
+.enroll-list > .enroll-row:hover {
+  border-color: #a2725a;
+}
+.enroll-list > .enroll-row.on {
+  border-color: #a2725a;
+  background: #1a212c;
+}
+.enroll-row input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--orange);
+}
+.enroll-row:has(input:disabled:not(:checked)) {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
 .enroll-list > button {
   display: flex;
   align-items: center;
